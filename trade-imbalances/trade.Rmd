@@ -1,0 +1,260 @@
+---
+title: "International Trade"
+author: "Martin Geissmann"
+date: "5/21/2019"
+output: html_document
+---
+
+# Let's have a look at imports and exports 
+
+## Loading R packages
+
+```{r packages, echo=F}
+library(tidyverse)
+library(comtradr)
+library(visNetwork)
+require(grid)
+require(png)
+require(RCurl)
+```
+
+[UN Comtrade](https://comtrade.un.org/) is a repository of official international trade statistics and relevant analytical tables. It allows to view and download detailed global trade data, i.e. imports and exports of all goods or even of specific services or goods (say tomatoes). [comtradr](https://github.com/ropensci/comtradr) is a R package and a collection of functions for interacting with the UN Comtrade API.
+
+## How to use comtradr
+
+```{r comtradedata, echo=F, warning=F, message=F}
+
+# q %>% saveRDS("data/sample1.RDS")
+
+q <- readRDS("data/sample1.RDS")
+
+us <- readRDS("data/us.RDS")
+
+```
+
+```{r sample1, eval=F}
+q <- ct_search(reporters = "USA", 
+               partners = c("Germany", "France", "Japan", "Mexico"), 
+               trade_direction = "imports")
+
+```
+
+There are `ct_search()` has more arguments:
+
+* reporters: Reporting country, can be "All" (required)
+    * can use `ct_country_lookup()` to look up the name of a country, e.g. `ct_country_lookup("russia")`
+* partners: Partner country, can be "All (required)
+* trade_direction: "imports", "exports", "re_imports", "re_exports". Default value is "all"
+* freq: "annual" or "monthly". Default value is "annual".
+* start_date: "yyyy" if freq="annual" or "yyyy-mm" if freq="monthly", can be "all" (default)
+* end_date: same	
+* commod_codes: character vector of commodity codes, or "TOTAL" (default)
+    * use `ct_commodity_lookup()` to look up codes, e.g. `tomatoes <- ct_commodity_lookup("tomato")`
+* max_rec: max. number of records, 50'000 without API token, 250'000 with (see also `ct_register_token()`)
+* type: "goods" or "services". Default value is "goods".
+* url: not needed
+
+Without API token you got 100 requests per day, check with `ct_get_remaining_hourly_queries()`.
+
+```{r sample2}
+q %>% glimpse()
+
+q %>% 
+  as_tibble() %>% 
+  filter(reporter == "USA", partner %in% c("Germany", "Mexico")) %>% 
+  select(trade_value_usd, reporter, partner, everything()) %>% 
+  ggplot(aes(x = year, y = trade_value_usd/1000000000, fill = partner)) +
+  geom_col(alpha = 0.6, position = "dodge") +
+  scale_y_continuous(labels = scales::number) +
+  scale_x_continuous(breaks = seq(1990, 2018, 2)) +
+  labs(title = "US imports from Germany and from Mexico", y = "billion USD") +
+  theme_bw()
+```
+
+# US trading partners
+
+## UN Comtrade ata
+
+```{r data1, eval=F}
+
+us1 <- ct_search(reporters = "USA", 
+                 partners = "All", 
+                 trade_direction = c("imports", "exports"),
+                 freq = "annual",
+                 start_date = (2018-4),
+                 end_date = 2018)
+
+us2 <- ct_search(reporters = "USA", 
+                 partners = "All", 
+                 trade_direction = c("imports", "exports"),
+                 freq = "annual",
+                 start_date = (2013-4),
+                 end_date = 2013)
+
+us3 <- ct_search(reporters = "USA", 
+                 partners = "All", 
+                 trade_direction = c("imports", "exports"),
+                 freq = "annual",
+                 start_date = (2009-4),
+                 end_date = 2009)
+
+us4 <- ct_search(reporters = "USA", 
+                 partners = "All", 
+                 trade_direction = c("imports", "exports"),
+                 freq = "annual",
+                 start_date = (2004-4),
+                 end_date = 2004)
+
+us5 <- ct_search(reporters = "USA", 
+                 partners = "All", 
+                 trade_direction = c("imports", "exports"),
+                 freq = "annual",
+                 start_date = (2000-4),
+                 end_date = 2000)
+
+us6 <- ct_search(reporters = "USA", 
+                 partners = "All", 
+                 trade_direction = c("imports", "exports"),
+                 freq = "annual",
+                 start_date = (1996-4),
+                 end_date = 1996)
+
+us <- bind_rows(us1, us2, us3, us4, us5, us6)
+
+# us %>% saveRDS("data/us.RDS")
+
+```
+
+```{r graphdata}
+
+# from to value
+
+data <- us %>% filter(year == 2018, partner != "World")
+
+edges <- bind_rows(
+  # exports
+  data %>% 
+    filter(trade_flow == "Export") %>% 
+    select(from = reporter, to = partner, value = trade_value_usd) %>% 
+    arrange(desc(value)),
+  
+  # imports
+  data %>% 
+    filter(trade_flow == "Import") %>% 
+    select(from = partner, to = reporter, value = trade_value_usd) %>% 
+    arrange(desc(value))
+)
+
+cutoff <- 38000000000
+
+nodes <- bind_rows(
+  edges %>% 
+    filter(value >= cutoff) %>% 
+    select(id = from),
+  edges %>% 
+    filter(value >= cutoff) %>% 
+    select(id = to)
+) %>% 
+  unique() %>% 
+  left_join(data %>% filter(year == 2018) %>% select(id = partner, label = partner_iso) %>% unique()) %>% 
+  mutate(shape = "circularImage", image = paste0("./flags/", id, ".png"))
+  
+visNetwork(nodes, edges, width = "100%") %>% 
+  visEdges(arrows = "from")
+  
+
+```
+
+```{r plotfunction}
+
+billion <- function(value) {
+  value/1000000000
+}
+
+trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_flags = T) {
+  top_partners <- data %>% 
+    filter(partner_iso != "WLD", !is.na(partner_iso), year == year) %>% 
+    group_by(partner_iso) %>% 
+    tally(trade_value_usd, sort = T) %>% 
+    top_n(top_n) %>% 
+    pull(partner_iso)
+  
+  if (include_others) {
+    others <- data %>% 
+      filter(year == yr, !(partner_iso %in% top_partners)) %>% 
+      group_by(trade_flow) %>% 
+      summarise(trade_value_usd = sum(trade_value_usd)) %>% 
+      mutate(partner_iso = "Others")
+    
+    toplot <- data %>% 
+      filter(year == yr, partner_iso %in% top_partners) %>% 
+      bind_rows(others) %>% 
+      mutate(partner_iso_fac = factor(partner_iso, levels = c(top_partners, "Others")))
+  } else {
+    toplot <- data %>% 
+      filter(year == yr, partner_iso %in% top_partners) %>% 
+      mutate(partner_iso_fac = factor(partner_iso, levels = c(top_partners)))
+  }
+  
+  toplot <- toplot %>% 
+    ungroup() %>% 
+    mutate(trade_value_usd_bn = billion(trade_value_usd))
+  
+  p <- toplot %>% 
+    ggplot(aes(y = trade_value_usd_bn, x = trade_flow)) +
+    geom_col() +
+    facet_wrap(~partner_iso_fac, dir = "h", 
+               nrow = ceiling(sqrt(top_n)), 
+               ncol = ceiling((top_n+include_others)/ceiling(sqrt(top_n))))
+  
+  if (include_flags) {
+    # function similar to annotation_custom() but specifying data
+    annotation_custom2 <- function (grob, xmin = -Inf, xmax = Inf, 
+                                ymin = -Inf, ymax = Inf, 
+                                data) {
+      layer(data = data, 
+            stat = StatIdentity, 
+            position = PositionIdentity,
+            geom = ggplot2:::GeomCustomAnn,
+            inherit.aes = TRUE, params = list(grob = grob, 
+                                              xmin = xmin, xmax = xmax, 
+                                              ymin = ymin, ymax = ymax))
+    }
+    
+    countries_annotate <- toplot %>% 
+      select(partner_iso, partner) %>% 
+      distinct() %>% 
+      mutate(path = paste0("./flags/", partner, ".png"))
+    
+    max_y <- max(toplot$trade_value_usd_bn, na.rm = T)
+    print(max_y)
+    
+    for (i in 1:top_n) {
+      data_annotate <- tibble(partner_iso_fac = countries_annotate[i, "partner_iso"], 
+                              trade_flow = "Export", trade_value_usd_bn = 1) #max_y)
+      if (file.exists(countries_annotate[i, "path"])) {
+        img <- readPNG(countries_annotate[i, "path"])
+        
+        p <- p + 
+          annotation_custom2(rasterGrob(img, interpolate=TRUE), 
+                             ymax = max_y, ymin = max_y*0.8, 
+                             xmin = -1, data = data_annotate)
+      } else {
+          next()
+        }
+    }
+  }
+  p <- p + theme_bw()
+  return(p)
+}
+
+```
+
+```{r tradeplot}
+
+trade_plot(us, top_n = 9, include_others = T, include_flags = T)
+
+```
+
+
+
