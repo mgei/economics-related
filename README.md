@@ -4,7 +4,7 @@
 
 Analyzing US-China trade relations
 
-![](graphs/us_trade.png)
+![](trade-imbalances/graphs/us_trade.png)
 
 ### Flags
 
