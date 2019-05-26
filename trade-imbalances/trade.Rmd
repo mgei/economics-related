@@ -1,33 +1,43 @@
 ---
-title: "International Trade"
+title: "Analyzing the China-US trade relationship"
 author: "Martin Geissmann"
-date: "5/21/2019"
+date: "5/24/2019"
 output: html_document
 ---
 
-# Let's have a look at imports and exports 
+# What we shall answer
 
-## Loading R packages
+* What's the total annual US import and export?
+* Who are the main trading partners?
+* How's the picture for China? Import and exports?
+* A look at the GDP growth
+* What type of goods are traded?
 
-```{r packages, echo=F}
+# UN Comtrade
+
+[UN Comtrade](https://comtrade.un.org/) is a repository of official international trade statistics and relevant analytical tables. It allows to view and download detailed global trade data, i.e. imports and exports of all goods or even of specific services or goods (say tomatoes).
+
+[comtradr](https://github.com/ropensci/comtradr) is a R package and a collection of functions for interacting with the UN Comtrade API. Besides *comtradr* we use various other packages that we shall load first.
+
+```{r packages, echo=T, warning=F, message=F}
 library(tidyverse)
 library(comtradr)
 library(visNetwork)
 library(grid)
 library(png)
 library(RCurl)
-
 library(scales)
+
+
+billion <- function(value) {
+  value/1000000000
+}
 
 ```
 
-[UN Comtrade](https://comtrade.un.org/) is a repository of official international trade statistics and relevant analytical tables. It allows to view and download detailed global trade data, i.e. imports and exports of all goods or even of specific services or goods (say tomatoes). [comtradr](https://github.com/ropensci/comtradr) is a R package and a collection of functions for interacting with the UN Comtrade API.
-
 ## How to use comtradr
 
-```{r comtradedata, echo=F, warning=F, message=F}
-
-# q %>% saveRDS("data/sample1.RDS")
+```{r mydata, echo=F, warning=F, message=F}
 
 q <- readRDS("data/sample1.RDS")
 
@@ -37,31 +47,33 @@ ch <- readRDS("data/ch.RDS")
 
 com <- readRDS("data/com.RDS")
 
+srv <- readRDS("data/srv.RDS")
+
 ```
 
 ```{r sample1, eval=F}
 q <- ct_search(reporters = "USA", 
                partners = c("Germany", "France", "Japan", "Mexico"), 
                trade_direction = "imports")
-
 ```
 
-There are `ct_search()` has more arguments:
+The main function is `ct_search()`. It accepts the following arguments:
 
 * reporters: Reporting country, can be "All" (required)
     * can use `ct_country_lookup()` to look up the name of a country, e.g. `ct_country_lookup("russia")`
 * partners: Partner country, can be "All (required)
 * trade_direction: "imports", "exports", "re_imports", "re_exports". Default value is "all"
 * freq: "annual" or "monthly". Default value is "annual".
-* start_date: "yyyy" if freq="annual" or "yyyy-mm" if freq="monthly", can be "all" (default)
-* end_date: same	
+* start_date: "yyyy" if freq="annual", or "yyyy-mm" if freq="monthly", can be "all" (default)
+* end_date: same
 * commod_codes: character vector of commodity codes, or "TOTAL" (default)
-    * use `ct_commodity_lookup()` to look up codes, e.g. `tomatoes <- ct_commodity_lookup("tomato")`
+    * use `ct_commodity_lookup()` to look up codes, e.g. `tomatoes <- ct_commodity_lookup("tomato")`.
+    * `tomatoes` can then be used as a variable for the argument
 * max_rec: max. number of records, 50'000 without API token, 250'000 with (see also `ct_register_token()`)
 * type: "goods" or "services". Default value is "goods".
 * url: not needed
 
-Without API token you got 100 requests per day, check with `ct_get_remaining_hourly_queries()`.
+Without API token you got 100 requests per day, check how many are left with `ct_get_remaining_hourly_queries()`.
 
 ```{r sample2}
 q %>% glimpse()
@@ -78,9 +90,9 @@ q %>%
   theme_bw()
 ```
 
-# US trading partners
+# USA international trade
 
-## UN Comtrade ata
+## Load Comtrade data
 
 ```{r data1, eval=F}
 
@@ -102,81 +114,93 @@ us3 <- ct_search(reporters = "USA",
                  partners = "All", 
                  trade_direction = c("imports", "exports"),
                  freq = "annual",
-                 start_date = (2009-4),
-                 end_date = 2009)
+                 start_date = (2008-4),
+                 end_date = 2008)
 
 us4 <- ct_search(reporters = "USA", 
                  partners = "All", 
                  trade_direction = c("imports", "exports"),
                  freq = "annual",
-                 start_date = (2004-4),
-                 end_date = 2004)
+                 start_date = (2003-4),
+                 end_date = 2003)
 
 us5 <- ct_search(reporters = "USA", 
                  partners = "All", 
                  trade_direction = c("imports", "exports"),
                  freq = "annual",
-                 start_date = (2000-4),
-                 end_date = 2000)
+                 start_date = (1998-4),
+                 end_date = 1998)
 
-us6 <- ct_search(reporters = "USA", 
-                 partners = "All", 
-                 trade_direction = c("imports", "exports"),
-                 freq = "annual",
-                 start_date = (1996-4),
-                 end_date = 1996)
-
-us <- bind_rows(us1, us2, us3, us4, us5, us6) %>% distinct()
+us <- bind_rows(us1, us2, us3, us4, us5) %>% distinct()
 
 us %>% saveRDS("data/us.RDS")
 
 ```
 
-```{r graphdata}
+## Balance of trade
 
-# from to value
+```{r devus}
 
-data <- us %>% filter(year == 2018, partner != "World")
+data1 <- us %>% #distinct() %>% 
+  filter(partner_iso != "WLD") %>% 
+  mutate(trade_value_usd_bn = billion(trade_value_usd)) %>% 
+  group_by(trade_flow, year) %>% 
+  summarise(trade_value_usd_bn = sum(trade_value_usd_bn, na.rm = T))
 
-edges <- bind_rows(
-  # exports
-  data %>% 
-    filter(trade_flow == "Export") %>% 
-    select(from = reporter, to = partner, value = trade_value_usd) %>% 
-    arrange(desc(value)),
-  
-  # imports
-  data %>% 
-    filter(trade_flow == "Import") %>% 
-    select(from = partner, to = reporter, value = trade_value_usd) %>% 
-    arrange(desc(value))
-)
-
-cutoff <- 38000000000
-
-nodes <- bind_rows(
-  edges %>% 
-    filter(value >= cutoff) %>% 
-    select(id = from),
-  edges %>% 
-    filter(value >= cutoff) %>% 
-    select(id = to)
-) %>% 
-  unique() %>% 
-  left_join(data %>% filter(year == 2018) %>% select(id = partner, label = partner_iso) %>% unique()) %>% 
-  mutate(shape = "circularImage", image = paste0("./flags/", id, ".png"))
-  
-visNetwork(nodes, edges, width = "100%") %>% 
-  visEdges(arrows = "from")
-  
+data1 %>% 
+  ggplot(aes(x = year, y = trade_value_usd_bn, color = trade_flow)) +
+  # geom_area(alpha = 0.1, position = "identity") +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = scales::number, breaks = seq(0, 2500, 500)) +
+  scale_color_manual(values = c("#88be3f", "#02a7eb")) +
+  scale_x_continuous(breaks = seq(1990, 2018, 2), expand = c(0.01, 0.01)) +
+  labs(title = "USA import and exports over time",
+       x = "", y = "trade value in billion USD", caption = "Data: UN Comtrade", color = "", fill = "")
 
 ```
 
-```{r plotfunction}
+In 2018 the balance of trade *in goods* was in deficit by `r data1 %>% filter(year == 2018) %>% spread(trade_flow, trade_value_usd_bn) %>% mutate(tb = Export - Import) %>% pull(tb) %>% number() `
 
-billion <- function(value) {
-  value/1000000000
-}
+Current account? What about services?
+
+```{r servicedata, eval=F}
+
+srv <- ct_search(reporters = "USA", 
+                 partners = "All", 
+                 trade_direction = c("imports", "exports"),
+                 type = "services",
+                 freq = "annual",
+                 start_date = (2018-4),
+                 end_date = 2018)
+
+# srv %>% saveRDS("data/srv.RDS")
+
+```
+
+```{r servicesplot}
+
+services <- srv %>% as_tibble() %>% 
+  filter(partner == "World") %>% 
+  group_by(year, trade_flow) %>% 
+  summarise(trade_value_usd_bn = sum(trade_value_usd)/1000000000) %>% 
+  spread(trade_flow, trade_value_usd_bn)
+
+```
+
+Of course, there's more to the current account than just the trade in good. There's trade in services, the countrie's income abroad, and current transfers. For the former we have the latest data from Cometrade dates from 2016. The US imported services of `r im <- services %>% filter(year == 2016) %>% pull(Import); im %>% number()` billion USD while it exported services for `r ex <- services %>% filter(year == 2016) %>% pull(Export); ex %>% number()` bn USD. The surplus here is `r tbs <- (ex-im); tbs %>% number() ` bn USD.
+
+To put this into perspective, the balance of trade in goods was at `r tb <- data1 %>% filter(year == 2016) %>% spread(trade_flow, trade_value_usd_bn) %>% mutate(tb = Export - Import) %>% pull(tb); tb %>% number()`. The balance of trade goods *and* services would therefore be `r (tbs + tb) %>% number()` bn USD (2016).
+
+We shall focus on the exchange of goods in the following.
+
+## Trading partners
+
+Who are the US' main trading partners?
+
+Prepare a function `trade_plot()` for plotting the trade data.
+
+```{r plotfunction}
 
 # function similar to annotation_custom() but specifying data
 annotation_custom2 <- function (grob, xmin = -Inf, xmax = Inf, 
@@ -191,9 +215,16 @@ annotation_custom2 <- function (grob, xmin = -Inf, xmax = Inf,
                                           ymin = ymin, ymax = ymax))
 }
 
-trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_flags = T, title = "USA import and exports") {
+trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_flags = T, include_share = T, title = "USA import and exports") {
+  
+  if (top_n) {
+    o <- "Others"
+  } else {
+    o <- "Rest of the world"
+  }
+  
   top_partners <- data %>% 
-    filter(partner_iso != "WLD", !is.na(partner_iso), year == year) %>% 
+    filter(partner_iso != "WLD", year == year) %>% 
     group_by(partner_iso) %>% 
     tally(trade_value_usd, sort = T) %>% 
     top_n(top_n) %>% 
@@ -201,30 +232,28 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
   
   if (include_others) {
     others <- data %>% 
-      filter(year == yr, !(partner_iso %in% top_partners)) %>% 
+      filter(year == yr, !(partner_iso %in% top_partners), partner_iso != "WLD") %>% 
       group_by(trade_flow) %>% 
       summarise(trade_value_usd = sum(trade_value_usd)) %>% 
-      mutate(partner_iso = "Others", partner = "Others")
+      mutate(partner_iso = o, partner = o, year = yr)
     
-    # if (length(top_partners)) {
-          toplot <- data %>% 
-            filter(year == yr, partner_iso %in% top_partners) %>% 
-            bind_rows(others) %>% 
-            mutate(partner_iso_fac = factor(partner_iso, levels = c(top_partners, "Others")))
-    # }
-    # else {
-    #   toplot <- others
-    # }
+    toplot <- data %>% 
+      filter(year == yr, partner_iso %in% top_partners) %>% 
+      bind_rows(others) %>% 
+      mutate(partner_iso_fac = factor(partner_iso, levels = c(top_partners, o)))
 
   } else {
     toplot <- data %>% 
       filter(year == yr, partner_iso %in% top_partners) %>% 
       mutate(partner_iso_fac = factor(partner_iso, levels = c(top_partners)))
   }
-  
+    
   toplot <- toplot %>% 
     ungroup() %>% 
-    mutate(trade_value_usd_bn = billion(trade_value_usd))
+    mutate(trade_value_usd_bn = billion(trade_value_usd)) %>% 
+    group_by(trade_flow) %>% 
+    mutate(share_of_total = trade_value_usd_bn/sum(trade_value_usd_bn)) %>% 
+    ungroup()
   
   p <- toplot %>% 
     group_by(partner_iso, trade_flow) %>% 
@@ -232,7 +261,9 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
     ungroup() %>% 
     ggplot(aes(y = trade_value_usd_bn, x = trade_flow, fill = trade_flow)) +
     geom_col() +
-    geom_text(aes(label = round(trade_value_usd_bn, digits = 1), y = label_pos), size = 3) +
+    geom_text(aes(label = number(trade_value_usd_bn, big.mark = "'"), y = label_pos), size = 3) +
+    geom_text(aes(label = ifelse(include_share, percent(share_of_total), ""), 
+                  y = max(trade_value_usd_bn)*0.9), size = 2.5, hjust = -0.2) +
     facet_wrap(~partner_iso_fac, dir = "h", 
                nrow = max(1, ceiling(sqrt(top_n)), na.rm = T), 
                # ncol = max(1, ceiling((top_n+include_others)/ceiling(sqrt(top_n))), na.rm = T)
@@ -249,10 +280,10 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
     
     for (i in 1:top_n) {
       if (!top_n) { next() }
-      data_annotate <- tibble(partner_iso_fac = factor(countries_annotate[i, "partner_iso"], levels = c(top_partners, "Others")), 
+      data_annotate <- tibble(partner_iso_fac = factor(countries_annotate[i, "partner_iso"], levels = c(top_partners, o)), 
                               trade_flow = "Export", trade_value_usd_bn = 1)
-      if (file.exists(countries_annotate[i, "path"])) {
-        img <- readPNG(countries_annotate[i, "path"])
+      if (file.exists(pull(countries_annotate[i, "path"]))) {
+        img <- readPNG(pull(countries_annotate[i, "path"]))
         
         p <- p + 
           annotation_custom2(rasterGrob(img, interpolate=TRUE), 
@@ -265,7 +296,7 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
   }
   p <- p + 
     labs(x = "", y = "",
-         title = title, subtitle = paste0("trade value in billion USD, year: ", yr),
+         title = title, subtitle = paste0("trade value in goods in billion USD, year: ", yr),
          caption = "Data: UN Comtrade") +
     theme(legend.position = "none") #+
     # theme_bw()
@@ -275,13 +306,81 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
 
 ```
 
-```{r tradeplot, out.height=6, out.width=6}
+Again here's the total import and exports for the year 2018.
 
-trade_plot(us, top_n = 9, include_others = F, include_flags = T)
+```{r totaltrade, warning=F, message=F, fig.height=2, fig.width=2}
+
+trade_plot(us, top_n = 0, include_others = T, include_flags = T, include_share = F)
 
 ```
 
-# China trading partners
+Let's see the 24 top trading parters
+
+```{r tradeplots1, fig.height=6, fig.width=6}
+# trade_plot(us, top_n = 25, include_others = F, include_flags = T)
+
+trade_plot(us, top_n = 24, include_others = T, include_flags = T, include_share = T)
+
+```
+
+Immediately visible are the imports from China. With `r chim <- us %>% filter(partner_iso == "CHN", year == 2018, trade_flow == "Import") %>% pull(trade_value_usd) %>% billion(); chim %>% number() ` bn USD. That's `r (chim / (us %>% filter(year == 2018, partner_iso == "WLD", trade_flow == "Import") %>% pull(trade_value_usd) %>% billion())) %>% percent() ` of all US imports. Exports to China (`r chex <- us %>% filter(partner_iso == "CHN", year == 2018, trade_flow == "Export") %>% pull(trade_value_usd) %>% billion(); chex %>% number() ` bn USD) only account for `r (chex / (us %>% filter(year == 2018, partner_iso == "WLD", trade_flow == "Export") %>% pull(trade_value_usd) %>% billion())) %>% percent() ` of all exports.
+
+## Over time
+
+The increase in imports from China is a recent phenomena. It has a lot China economic catching up with the west. See [recent history on Wikipedia](https://en.wikipedia.org/wiki/History_of_the_People%27s_Republic_of_China_(2002%E2%80%93present)).
+
+Here's the imports from the 5 todays major trading partners:
+
+```{r major5}
+
+top_5 <- us %>% 
+  filter(partner_iso != "WLD", year == 2018) %>% 
+  group_by(partner_iso) %>% 
+  tally(trade_value_usd, sort = T) %>% 
+  top_n(5) %>% 
+  pull(partner_iso)
+
+us %>% 
+  filter(partner_iso %in% top_5, trade_flow == "Import") %>% 
+  ggplot(aes(x = year, y = billion(trade_value_usd), color = partner_iso)) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(1992, 2018, 2)) +
+  labs(title = "US imports of the current top-5 trading partners",
+       x = "", y = "trade value in billion USD", color = "",
+       caption = "Date: UN Comtrade")
+
+```
+
+It's also interesting to view it as share of total imports.
+
+```{r major5}
+
+top_5 <- us %>% 
+  filter(partner_iso != "WLD", year == 2018) %>% 
+  group_by(partner_iso) %>% 
+  tally(trade_value_usd, sort = T) %>% 
+  top_n(5) %>% 
+  pull(partner_iso)
+
+us %>% 
+  filter(partner_iso != "WLD", trade_flow == "Import") %>% 
+  group_by(year) %>% 
+  mutate(share_of_total = trade_value_usd/sum(trade_value_usd)) %>% 
+  ungroup() %>% 
+  filter(partner_iso %in% top_5, trade_flow == "Import") %>% 
+  ggplot(aes(x = year, y = share_of_total, color = partner_iso)) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(1992, 2018, 2)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "US imports of the current top-5 trading partners (relative)",
+       x = "", y = "share of all imports", color = "",
+       caption = "Date: UN Comtrade")
+
+```
+
+# China international trade
+
+## Data
 
 ```{r data2, eval=F}
 
@@ -303,103 +402,167 @@ ch3 <- ct_search(reporters = "China",
                  partners = "All", 
                  trade_direction = c("imports", "exports"),
                  freq = "annual",
-                 start_date = (2009-4),
-                 end_date = 2009)
+                 start_date = (2008-4),
+                 end_date = 2008)
 
 ch4 <- ct_search(reporters = "China", 
                  partners = "All", 
                  trade_direction = c("imports", "exports"),
                  freq = "annual",
-                 start_date = (2004-4),
-                 end_date = 2004)
+                 start_date = (2003-4),
+                 end_date = 2003)
 
 ch5 <- ct_search(reporters = "China", 
                  partners = "All", 
                  trade_direction = c("imports", "exports"),
                  freq = "annual",
-                 start_date = (2000-4),
-                 end_date = 2000)
+                 start_date = (1998-4),
+                 end_date = 1998)
 
-ch6 <- ct_search(reporters = "China", 
-                 partners = "All", 
-                 trade_direction = c("imports", "exports"),
-                 freq = "annual",
-                 start_date = (1996-4),
-                 end_date = 1996)
-
-ch <- bind_rows(ch1, ch2, ch3, ch4, ch5, ch6) %>% distinct()
+ch <- bind_rows(ch1, ch2, ch3, ch4, ch5) %>% distinct()
 
 ch %>% saveRDS("data/ch.RDS")
 
 ```
 
-```{r tradeplot2, out.height=6, out.width=6}
+```{r tradeplot2, fig.height=6, fig.width=6}
 
-trade_plot(ch, yr = 2017, top_n = 8, include_others = T, include_flags = T, title = "China imports and exports")
+trade_plot(ch, yr = 2017, top_n = 0, include_others = T, include_flags = T, title = "China imports and exports")
+
+trade_plot(ch, yr = 2017, top_n = 9, include_others = F, include_flags = T, title = "China imports and exports")
 
 ```
 
 # Development over time
 
-```{r dev1}
 
-data <- us %>% distinct() %>% 
+
+```{r devmx}
+
+# CHINA or MEXICO trade with US
+
+data1 <- us %>% #distinct() %>% 
+  filter(partner_iso == "CHN") %>% 
+  mutate(trade_value_usd_bn = billion(trade_value_usd)) %>% 
+  group_by(trade_flow, year) %>% 
+  summarise(trade_value_usd_bn = sum(trade_value_usd_bn, na.rm = T))
+
+data1 %>% 
+  ggplot(aes(x = year, y = trade_value_usd_bn, color = trade_flow, fill = trade_flow)) +
+  geom_area(alpha = 0.1, position = "identity") +
+  geom_point() +
+  scale_y_continuous(labels = scales::number, breaks = seq(0, 250, 50)) +
+  scale_color_manual(values = c("#88be3f", "#02a7eb")) +
+  scale_x_continuous(breaks = seq(1990, 2018, 2), expand = c(0.01, 0.01)) +
+  labs(title = "USA import and exports over time",
+       x = "", y = "trade value in billion USD", caption = "Data: UN Comtrade", color = "", fill = "")
+
+```
+
+```{r devch}
+
+data2 <- ch %>% #distinct() %>% 
   filter(partner_iso != "WLD") %>% 
   mutate(trade_value_usd_bn = billion(trade_value_usd)) %>% 
   group_by(trade_flow, year) %>% 
   summarise(trade_value_usd_bn = sum(trade_value_usd_bn, na.rm = T))
 
-data %>% 
+data2 %>% 
   ggplot(aes(x = year, y = trade_value_usd_bn, color = trade_flow, fill = trade_flow)) +
-  geom_area(alpha = 0.3, position = "identity") +
-  geom_point()
+  geom_area(alpha = 0.1, position = "identity") +
+  geom_point() +
+  scale_y_continuous(labels = scales::number, breaks = seq(0, 2500, 500)) +
+  scale_color_manual(values = c("#88be3f", "#02a7eb")) +
+  scale_x_continuous(breaks = seq(1990, 2018, 2), expand = c(0.01, 0.01)) +
+  labs(title = "USA import and exports over time",
+       x = "", y = "trade value in billion USD", caption = "Data: UN Comtrade", color = "", fill = "")
+
+bind_rows(
+  data1 %>% mutate(reporter = "USA"),
+  data2 %>% mutate(reporter = "China")
+) %>% 
+  ggplot(aes(x = year, y = trade_value_usd_bn, color = interaction(trade_flow, reporter), fill = interaction(trade_flow, reporter))) +
+  geom_line() +
+  # geom_area(alpha = 0.1, position = "identity") +
+  geom_point(aes(shape = reporter)) +
+  geom_vline(xintercept = 2007, alpha = 0.3) +
+  geom_text(label = "China exports > US exports", x = 2007, y = 0, inherit.aes = F, color = "grey", 
+            angle = 90, vjust = 1, hjust = -0.05) +
+  scale_y_continuous(labels = scales::number, breaks = seq(0, 2500, 500)) +
+  scale_color_manual(values = c("#ca0020", "#f4a582", "#0571b0", "#92c5de")) +
+  scale_x_continuous(breaks = seq(1990, 2018, 2), expand = c(0.01, 0.01)) +
+  scale_shape(guide = "none") +
+  labs(title = "USA and China world trade over time",
+       x = "", y = "trade value in billion USD", caption = "Data: UN Comtrade", color = "", fill = "")
+
+```
+
+```{r gdp}
+
+# # There are libraries for loading data from World Bank Indicators, but I encountered issues.
+# # Therefore we shall download data from https://databank.worldbank.org/data/reports.aspx?source=2&series=NY.GDP.MKTP.CD#
+# library(WDI)
+# library(wbstats)
+
+gdp <- read_csv("data/gdp.csv")
+
+gdp <- gdp %>% 
+  filter(str_detect(`Series Name`, "GDP")) %>%
+  select(-`2018 [YR2018]`) %>% 
+  gather(year, gdp, -`Series Name`, -`Series Code`, -`Country Name`, -`Country Code`) %>% 
+  select(-`Series Name`, -`Series Code`) %>% 
+  mutate(year = str_sub(year, 1, 4) %>% as.integer())
+
+gdp %>% 
+  ggplot(aes(x = year, y = billion(gdp), color = `Country Name`)) +
+  geom_line()
+
+gdp %>% 
+  filter(`Country Name` == "China", year == 2017) %>% 
+  pull(gdp) %>% billion()
+
 
 ```
 
 # Dependency and diversification
 
-```{r dev1}
+```{r dep}
 
-# Lorenzkurve
-curvedata <- us %>% as.tibble() %>%
-  filter(partner_iso != "WLD", year == 2018) %>% 
-  mutate(trade_value_usd_bn = billion(trade_value_usd)) %>%
+top_par <- us %>% 
+  filter(partner_iso != "WLD", year == 2018) %>%  
+  group_by(partner_iso) %>% 
+  tally(trade_value_usd, sort = T) %>% 
+  top_n(10) %>% 
+  pull(partner_iso)
+
+others <- us %>% 
+  filter(partner_iso != "WLD", !(partner_iso %in% top_par), year == 2018) %>% 
   group_by(trade_flow) %>% 
-  # summarise(trade_value_usd_bn = sum(trade_value_usd_bn, na.rm = T)) %>% 
-  arrange(trade_flow, trade_value_usd_bn) %>% 
-  mutate(cumsharePartner = row_number()/n(),
-         nPartner = n()-row_number(),
-         sumtrade_value_usd_bn = sum(trade_value_usd_bn),
-         sharetrade_value_usd_bn = trade_value_usd_bn/sum(trade_value_usd_bn),
-         cumsharetrade_value_usd_bn = cumsum(sharetrade_value_usd_bn)) %>% 
-  ungroup()
-
-labeldata <- curvedata %>% 
-  group_by(year) %>% 
-  filter(min((cumsharetrade_value_usd_bn - 0.5)^2) == ((cumsharetrade_value_usd_bn - 0.5)^2) | 
-         min((cumsharePartner - 0.5)^2) == ((cumsharePartner - 0.5)^2)) %>% 
-  mutate(text = paste(percent(cumsharePartner), "or partners make up", percent(cumsharetrade_value_usd_bn), "trade")) %>% 
-  ungroup()
+  summarise(trade_value_usd = sum(trade_value_usd)) %>% 
+  mutate(partner_iso = "Others")
   
+plotdata <- us %>% 
+  filter(partner_iso %in% top_par, year == 2018) %>% 
+  bind_rows(others) %>% 
+  select(trade_flow, trade_value_usd, partner_iso) %>% 
+  arrange(-trade_value_usd)
+  
+  
+plotdata %>% 
+  ggplot(aes(y = billion(trade_value_usd), x = trade_flow,  fill = factor(partner_iso, levels = c(top_par, "Others")))) +
+  geom_col() +
+  scale_fill_brewer(palette = "Set3")
 
-curvedata %>% filter(year %in% 2016:2018) %>% 
-  ggplot(aes(x = cumsharePartner, y = cumsharetrade_value_usd_bn, color = factor(year), group = year)) +
-  geom_line(linetype = 2, size = 1) +
-  geom_vline(data = labeldata %>% filter(year == 2018), aes(xintercept = cumsharePartner), alpha = 0.1) +
-  geom_hline(data = labeldata %>% filter(year == 2018), aes(yintercept = cumsharetrade_value_usd_bn), alpha = 0.1) +
-  geom_segment(data = labeldata %>% filter(year == 2018), aes(x = cumsharePartner, xend=cumsharePartner, y = cumsharetrade_value_usd_bn, yend=0), 
-               color = "#cc0000") +
-  geom_segment(data = labeldata %>% filter(year == 2018), aes(y = cumsharetrade_value_usd_bn, yend=cumsharetrade_value_usd_bn, x = cumsharePartner, xend=0), 
-               color = "#cc0000") +
-  geom_text(data = labeldata %>% filter(year == 2018), aes(label = text, x = cumsharePartner/2, y = cumsharetrade_value_usd_bn), nudge_y = 0.02, 
-               color = "#cc0000") +
-  scale_x_continuous(breaks = seq(0,1,0.1), labels = scales::percent, expand=c(0, 0)) +
-  scale_y_continuous(breaks = seq(0,1,0.1), labels = scales::percent, expand=c(0, 0)) +
-  labs(x = "Kundenanteil kumulativ", y = "Umsatzanteil kumulativ",
-       color = "Jahr") +
-  theme_bw() 
+
+
+us %>% 
+  filter(year == 2018) %>% 
+  ggplot(aes(x = trade_flow, y = billion(trade_value_usd), fill = partner_iso)) +
+  geom_col() +
+  theme(legend.position = "none")
 
 ```
+
 
 # A look at the goods
 
@@ -431,17 +594,66 @@ com %>% saveRDS("data/com.RDS")
 top_com <- com %>% 
   group_by(commodity) %>% 
   tally(trade_value_usd, sort = T) %>% 
-  top_n(8) %>% 
+  top_n(11) %>% 
   pull(commodity)
-  
 
+others <- com %>% 
+  filter(!(commodity %in% top_com)) %>% 
+  group_by(trade_flow) %>% 
+  summarise(trade_value_usd = sum(trade_value_usd)) %>% 
+  mutate(commodity = "Others")
+  
 com %>% 
   filter(commodity %in% top_com) %>% 
+  bind_rows(others) %>% 
   select(trade_flow, trade_value_usd, commodity) %>% 
   arrange(-trade_value_usd) %>% 
-  ggplot(aes(y = trade_value_usd, x = trade_flow)) +
+  ggplot(aes(y = trade_value_usd, x = trade_flow,  fill = factor(str_sub(commodity, 1, 30), levels = str_sub(c(top_com, "Others"), 1, 30)))) +
   geom_col() +
-  facet_wrap(~commodity, ncol = 2)
+  scale_fill_brewer(palette = "Set3")
 
+```
+
+# Extras
+
+## Network graph
+
+Let's make a [visNetwork](https://datastorm-open.github.io/visNetwork/) graph.
+
+```{r graphdata}
+
+data <- us %>% filter(year == 2018, partner != "World")
+
+edges <- bind_rows(
+  # exports
+  data %>% 
+    filter(trade_flow == "Export") %>% 
+    select(from = reporter, to = partner, value = trade_value_usd) %>% 
+    arrange(desc(value)),
+  
+  # imports
+  data %>% 
+    filter(trade_flow == "Import") %>% 
+    select(from = partner, to = reporter, value = trade_value_usd) %>% 
+    arrange(desc(value))
+) %>% 
+  mutate(title = paste0("bn$", number(value/1000000000)))
+
+cutoff <- 38000000000
+
+nodes <- bind_rows(
+  edges %>% 
+    filter(value >= cutoff) %>% 
+    select(id = from),
+  edges %>% 
+    filter(value >= cutoff) %>% 
+    select(id = to)
+) %>% 
+  unique() %>% 
+  left_join(data %>% filter(year == 2018) %>% select(id = partner, label = partner_iso) %>% unique()) %>% 
+  mutate(shape = "circularImage", image = paste0("./flags/", str_replace_all(id, " ", "_"), ".png"))
+  
+visNetwork(nodes, edges, width = "100%") %>% 
+  visEdges(arrows = "from")
 
 ```
