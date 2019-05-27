@@ -1,7 +1,7 @@
 ---
-title: "Analyzing the China-US trade relationship"
+title: "A closer look at the China-US trade"
 author: "Martin Geissmann"
-date: "5/24/2019"
+date: "5/27/2019"
 output: html_document
 ---
 
@@ -75,7 +75,7 @@ The main function is `ct_search()`. It accepts the following arguments:
 
 Without API token you got 100 requests per day, check how many are left with `ct_get_remaining_hourly_queries()`.
 
-```{r sample2}
+```{r sample2, message=F, warning=F}
 q %>% glimpse()
 
 q %>% 
@@ -139,7 +139,7 @@ us %>% saveRDS("data/us.RDS")
 
 ## Balance of trade
 
-```{r devus}
+```{r devus, message=F, warning=F}
 
 data1 <- us %>% #distinct() %>% 
   filter(partner_iso != "WLD") %>% 
@@ -178,7 +178,7 @@ srv <- ct_search(reporters = "USA",
 
 ```
 
-```{r servicesplot}
+```{r servicesplot, message=F, warning=F}
 
 services <- srv %>% as_tibble() %>% 
   filter(partner == "World") %>% 
@@ -200,7 +200,7 @@ Who are the US' main trading partners?
 
 Prepare a function `trade_plot()` for plotting the trade data.
 
-```{r plotfunction}
+```{r plotfunction, message=F, warning=F}
 
 # function similar to annotation_custom() but specifying data
 annotation_custom2 <- function (grob, xmin = -Inf, xmax = Inf, 
@@ -213,6 +213,24 @@ annotation_custom2 <- function (grob, xmin = -Inf, xmax = Inf,
         inherit.aes = TRUE, params = list(grob = grob, 
                                           xmin = xmin, xmax = xmax, 
                                           ymin = ymin, ymax = ymax))
+}
+
+percent2 <- function(input) {
+  if (is.numeric(input)) {
+    output <- percent(input)
+  } else {
+    output <- input
+  }
+  return(output)
+}
+
+number2 <- function(input) {
+  if (is.numeric(input)) {
+    output <- number(input)
+  } else {
+    output <- input
+  }
+  return(output)
 }
 
 trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_flags = T, include_share = T, title = "USA import and exports") {
@@ -250,10 +268,18 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
     
   toplot <- toplot %>% 
     ungroup() %>% 
-    mutate(trade_value_usd_bn = billion(trade_value_usd)) %>% 
-    group_by(trade_flow) %>% 
-    mutate(share_of_total = trade_value_usd_bn/sum(trade_value_usd_bn)) %>% 
-    ungroup()
+    mutate(trade_value_usd_bn = billion(trade_value_usd))
+  
+  if (include_share) {
+    toplot <- toplot %>% 
+      group_by(trade_flow) %>% 
+      mutate(share_of_total = trade_value_usd_bn/sum(trade_value_usd_bn)) %>% 
+      ungroup()
+  } else {
+    toplot <- toplot %>% 
+      mutate(share_of_total = "")
+  }
+    
   
   p <- toplot %>% 
     group_by(partner_iso, trade_flow) %>% 
@@ -262,7 +288,7 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
     ggplot(aes(y = trade_value_usd_bn, x = trade_flow, fill = trade_flow)) +
     geom_col() +
     geom_text(aes(label = number(trade_value_usd_bn, big.mark = "'"), y = label_pos), size = 3) +
-    geom_text(aes(label = ifelse(include_share, percent(share_of_total), ""), 
+    geom_text(aes(label = percent2(share_of_total), 
                   y = max(trade_value_usd_bn)*0.9), size = 2.5, hjust = -0.2) +
     facet_wrap(~partner_iso_fac, dir = "h", 
                nrow = max(1, ceiling(sqrt(top_n)), na.rm = T), 
@@ -283,6 +309,7 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
       data_annotate <- tibble(partner_iso_fac = factor(countries_annotate[i, "partner_iso"], levels = c(top_partners, o)), 
                               trade_flow = "Export", trade_value_usd_bn = 1)
       if (file.exists(pull(countries_annotate[i, "path"]))) {
+        # print(paste0(pull(countries_annotate[i, "path"]), " exists and should be plotted"))
         img <- readPNG(pull(countries_annotate[i, "path"]))
         
         p <- p + 
@@ -308,7 +335,7 @@ trade_plot <- function(data, yr = 2018, top_n = 8, include_others = T, include_f
 
 Again here's the total import and exports for the year 2018.
 
-```{r totaltrade, warning=F, message=F, fig.height=2, fig.width=2}
+```{r totaltrade, warning=F, message=F, fig.height=3, fig.width=4, message=F, warning=F}
 
 trade_plot(us, top_n = 0, include_others = T, include_flags = T, include_share = F)
 
@@ -316,7 +343,7 @@ trade_plot(us, top_n = 0, include_others = T, include_flags = T, include_share =
 
 Let's see the 24 top trading parters
 
-```{r tradeplots1, fig.height=6, fig.width=6}
+```{r tradeplots1, fig.height=8, fig.width=8, message=F, warning=F}
 # trade_plot(us, top_n = 25, include_others = F, include_flags = T)
 
 trade_plot(us, top_n = 24, include_others = T, include_flags = T, include_share = T)
@@ -331,7 +358,7 @@ The increase in imports from China is a recent phenomena. It has a lot China eco
 
 Here's the imports from the 5 todays major trading partners:
 
-```{r major5}
+```{r major5, message=F, warning=F}
 
 top_5 <- us %>% 
   filter(partner_iso != "WLD", year == 2018) %>% 
@@ -353,7 +380,7 @@ us %>%
 
 It's also interesting to view it as share of total imports.
 
-```{r major5}
+```{r major5share, message=F, warning=F}
 
 top_5 <- us %>% 
   filter(partner_iso != "WLD", year == 2018) %>% 
@@ -371,7 +398,7 @@ us %>%
   ggplot(aes(x = year, y = share_of_total, color = partner_iso)) +
   geom_line() +
   scale_x_continuous(breaks = seq(1992, 2018, 2)) +
-  scale_y_continuous(labels = scales::percent) +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0.04, 0.5, by = 0.02)) +
   labs(title = "US imports of the current top-5 trading partners (relative)",
        x = "", y = "share of all imports", color = "",
        caption = "Date: UN Comtrade")
@@ -379,6 +406,8 @@ us %>%
 ```
 
 # China international trade
+
+How does the situation look like from the point of view of China? How much do Chinese rely on the US?
 
 ## Data
 
@@ -421,45 +450,48 @@ ch5 <- ct_search(reporters = "China",
 
 ch <- bind_rows(ch1, ch2, ch3, ch4, ch5) %>% distinct()
 
-ch %>% saveRDS("data/ch.RDS")
+# ch %>% saveRDS("data/ch.RDS")
 
 ```
 
-```{r tradeplot2, fig.height=6, fig.width=6}
+Note that the most recent annual data for China is 2017.
 
-trade_plot(ch, yr = 2017, top_n = 0, include_others = T, include_flags = T, title = "China imports and exports")
+## Imports and exports
 
-trade_plot(ch, yr = 2017, top_n = 9, include_others = F, include_flags = T, title = "China imports and exports")
+```{r totaltradechina, warning=F, message=F, fig.height=3, fig.width=4}
+
+trade_plot(ch, yr = 2017, top_n = 0, include_others = T, include_flags = T, include_share = F)
+
+```
+
+```{r tradeplot2, fig.height=8, fig.width=8, message=F, warning=F}
+
+trade_plot(ch, yr = 2017, top_n = 24, include_others = T, include_flags = T, include_share = T, title = "China imports and exports")
 
 ```
 
 # Development over time
 
-
-
-```{r devmx}
+```{r devmx, message=F, warning=F}
 
 # CHINA or MEXICO trade with US
 
 data1 <- us %>% #distinct() %>% 
-  filter(partner_iso == "CHN") %>% 
+  filter(partner_iso == "WLD") %>% 
   mutate(trade_value_usd_bn = billion(trade_value_usd)) %>% 
   group_by(trade_flow, year) %>% 
   summarise(trade_value_usd_bn = sum(trade_value_usd_bn, na.rm = T))
 
-data1 %>% 
-  ggplot(aes(x = year, y = trade_value_usd_bn, color = trade_flow, fill = trade_flow)) +
-  geom_area(alpha = 0.1, position = "identity") +
-  geom_point() +
-  scale_y_continuous(labels = scales::number, breaks = seq(0, 250, 50)) +
-  scale_color_manual(values = c("#88be3f", "#02a7eb")) +
-  scale_x_continuous(breaks = seq(1990, 2018, 2), expand = c(0.01, 0.01)) +
-  labs(title = "USA import and exports over time",
-       x = "", y = "trade value in billion USD", caption = "Data: UN Comtrade", color = "", fill = "")
+# data1 %>% 
+#   ggplot(aes(x = year, y = trade_value_usd_bn, color = trade_flow, fill = trade_flow)) +
+#   geom_area(alpha = 0.1, position = "identity") +
+#   geom_point() +
+#   scale_y_continuous(labels = scales::number, breaks = seq(0, 250, 50)) +
+#   scale_color_manual(values = c("#88be3f", "#02a7eb")) +
+#   scale_x_continuous(breaks = seq(1990, 2018, 2), expand = c(0.01, 0.01)) +
+#   labs(title = "USA import and exports over time",
+#        x = "", y = "trade value in billion USD", caption = "Data: UN Comtrade", color = "", fill = "")
 
-```
-
-```{r devch}
 
 data2 <- ch %>% #distinct() %>% 
   filter(partner_iso != "WLD") %>% 
@@ -467,15 +499,15 @@ data2 <- ch %>% #distinct() %>%
   group_by(trade_flow, year) %>% 
   summarise(trade_value_usd_bn = sum(trade_value_usd_bn, na.rm = T))
 
-data2 %>% 
-  ggplot(aes(x = year, y = trade_value_usd_bn, color = trade_flow, fill = trade_flow)) +
-  geom_area(alpha = 0.1, position = "identity") +
-  geom_point() +
-  scale_y_continuous(labels = scales::number, breaks = seq(0, 2500, 500)) +
-  scale_color_manual(values = c("#88be3f", "#02a7eb")) +
-  scale_x_continuous(breaks = seq(1990, 2018, 2), expand = c(0.01, 0.01)) +
-  labs(title = "USA import and exports over time",
-       x = "", y = "trade value in billion USD", caption = "Data: UN Comtrade", color = "", fill = "")
+# data2 %>% 
+#   ggplot(aes(x = year, y = trade_value_usd_bn, color = trade_flow, fill = trade_flow)) +
+#   geom_area(alpha = 0.1, position = "identity") +
+#   geom_point() +
+#   scale_y_continuous(labels = scales::number, breaks = seq(0, 2500, 500)) +
+#   scale_color_manual(values = c("#88be3f", "#02a7eb")) +
+#   scale_x_continuous(breaks = seq(1990, 2018, 2), expand = c(0.01, 0.01)) +
+#   labs(title = "USA import and exports over time",
+#        x = "", y = "trade value in billion USD", caption = "Data: UN Comtrade", color = "", fill = "")
 
 bind_rows(
   data1 %>% mutate(reporter = "USA"),
@@ -497,7 +529,7 @@ bind_rows(
 
 ```
 
-```{r gdp}
+```{r gdp, message=F, warning=F}
 
 # # There are libraries for loading data from World Bank Indicators, but I encountered issues.
 # # Therefore we shall download data from https://databank.worldbank.org/data/reports.aspx?source=2&series=NY.GDP.MKTP.CD#
@@ -511,60 +543,39 @@ gdp <- gdp %>%
   select(-`2018 [YR2018]`) %>% 
   gather(year, gdp, -`Series Name`, -`Series Code`, -`Country Name`, -`Country Code`) %>% 
   select(-`Series Name`, -`Series Code`) %>% 
-  mutate(year = str_sub(year, 1, 4) %>% as.integer())
+  mutate(year = str_sub(year, 1, 4) %>% as.integer(),
+         gdp_label = ifelse(year == 2017, number2(billion(gdp)), ""))
 
 gdp %>% 
   ggplot(aes(x = year, y = billion(gdp), color = `Country Name`)) +
-  geom_line()
-
-gdp %>% 
-  filter(`Country Name` == "China", year == 2017) %>% 
-  pull(gdp) %>% billion()
-
-
-```
-
-# Dependency and diversification
-
-```{r dep}
-
-top_par <- us %>% 
-  filter(partner_iso != "WLD", year == 2018) %>%  
-  group_by(partner_iso) %>% 
-  tally(trade_value_usd, sort = T) %>% 
-  top_n(10) %>% 
-  pull(partner_iso)
-
-others <- us %>% 
-  filter(partner_iso != "WLD", !(partner_iso %in% top_par), year == 2018) %>% 
-  group_by(trade_flow) %>% 
-  summarise(trade_value_usd = sum(trade_value_usd)) %>% 
-  mutate(partner_iso = "Others")
-  
-plotdata <- us %>% 
-  filter(partner_iso %in% top_par, year == 2018) %>% 
-  bind_rows(others) %>% 
-  select(trade_flow, trade_value_usd, partner_iso) %>% 
-  arrange(-trade_value_usd)
-  
-  
-plotdata %>% 
-  ggplot(aes(y = billion(trade_value_usd), x = trade_flow,  fill = factor(partner_iso, levels = c(top_par, "Others")))) +
-  geom_col() +
-  scale_fill_brewer(palette = "Set3")
-
-
-
-us %>% 
-  filter(year == 2018) %>% 
-  ggplot(aes(x = trade_flow, y = billion(trade_value_usd), fill = partner_iso)) +
-  geom_col() +
-  theme(legend.position = "none")
+  geom_line() +
+  scale_color_manual(values = c("red", "blue")) +
+  scale_y_continuous(labels = scales::number, breaks = seq(0, 20000, by = 2500)) +
+  scale_x_continuous(breaks = seq(1968, 2018, by = 4)) +
+  geom_vline(xintercept = 1976, color = "grey") +
+  geom_text(label = "end of Mao era", x = 1976, y = 0, inherit.aes = F, color = "grey",
+            angle = 90, vjust = 1, hjust = -1) +
+  geom_vline(xintercept = 1989, color = "grey") +
+  geom_text(label = "China rising power", x = 1989, y = 0, inherit.aes = F, color = "grey",
+            angle = 90, vjust = 1, hjust = -1) +
+  geom_vline(xintercept = 2008, color = "grey") +
+  geom_text(label = "2008 Olympics Beijing", x = 2008, y = 0, inherit.aes = F, color = "grey",
+            angle = 90, vjust = 1, hjust = -1) +
+  geom_vline(xintercept = 2012.7, color = "grey") +
+  geom_text(label = "Xi Jinping", x = 2012.7, y = 0, inherit.aes = F, color = "grey",
+            angle = 90, vjust = 1, hjust = -1) +
+  geom_text(aes(label = gdp_label)) +
+  labs(title = "GDP over time",
+       subtitle = "China and USA, unadjusted",
+       x = "", y = "GDP in billion USD",
+       color = "",
+       caption = "Data: World Bank Indicators")
 
 ```
-
 
 # A look at the goods
+
+What goods do the USA import from China?
 
 ```{r whatgoods, eval = F}
 
@@ -589,12 +600,12 @@ com %>% saveRDS("data/com.RDS")
 
 ```
 
-```{r whatgoods2}
+```{r whatgoods2, message=F, warning=F}
 
 top_com <- com %>% 
   group_by(commodity) %>% 
   tally(trade_value_usd, sort = T) %>% 
-  top_n(11) %>% 
+  top_n(10) %>% 
   pull(commodity)
 
 others <- com %>% 
@@ -606,11 +617,19 @@ others <- com %>%
 com %>% 
   filter(commodity %in% top_com) %>% 
   bind_rows(others) %>% 
-  select(trade_flow, trade_value_usd, commodity) %>% 
-  arrange(-trade_value_usd) %>% 
-  ggplot(aes(y = trade_value_usd, x = trade_flow,  fill = factor(str_sub(commodity, 1, 30), levels = str_sub(c(top_com, "Others"), 1, 30)))) +
+  mutate(trade_value_usd_bn = billion(trade_value_usd)) %>% 
+  select(trade_flow, trade_value_usd_bn, commodity) %>% 
+  # arrange(-trade_value_usd) %>% 
+  ggplot(aes(y = trade_value_usd_bn, x = trade_flow,  fill = factor(str_sub(commodity, 1, 35), levels = str_sub(c(top_com, "Others"), 1, 35)))) +
   geom_col() +
-  scale_fill_brewer(palette = "Set3")
+  geom_text(aes(label = number(trade_value_usd_bn)), position = position_stack(vjust = .5)) +
+  scale_fill_brewer(palette = "Set3") +
+  scale_y_continuous(labels = scales::number) +
+  labs(title = "Classification by goods traded",
+       subtitle = "reporter: USA, partner: China, year 2018",
+       x = "", y = "Cumulated trade value in billion USD",
+       fill = "",
+       caption = "Data: UN Comtrade")
 
 ```
 
@@ -620,7 +639,7 @@ com %>%
 
 Let's make a [visNetwork](https://datastorm-open.github.io/visNetwork/) graph.
 
-```{r graphdata}
+```{r graphdata, message=F, warning=F}
 
 data <- us %>% filter(year == 2018, partner != "World")
 
